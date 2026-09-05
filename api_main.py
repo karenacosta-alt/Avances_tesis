@@ -1,15 +1,16 @@
+import os
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from datetime import datetime
 import psycopg2
 
-
+# Lee credenciales desde variables de entorno o usa valores genéricos
 DB = dict(
-    dbname="tesis_db",
-    user="postgres",
-    password="12345",
-    host="127.0.0.1",
-    port=5432
+    dbname=os.getenv("DB_NAME", "tesis_db"),
+    user=os.getenv("DB_USER", "postgres"),
+    password=os.getenv("DB_PASSWORD", "tu_contraseña_aqui"),
+    host=os.getenv("DB_HOST", "127.0.0.1"),
+    port=int(os.getenv("DB_PORT", 5432)),
 )
 
 app = FastAPI()
