@@ -1,0 +1,197 @@
+// ESTACIÓN CALIDAD DE AIRE v14
+// Ajuste solicitado:
+// - Se conservan postes, distribución interna y tabiques originales.
+// - Se cierran todas las aberturas de las caras EXTERIORES.
+// - Se mantiene el patrón panal en las paredes.
+// - Se dejan intactas únicamente las aberturas internas de los tabiques.
+//
+// Se eliminaron estas aberturas exteriores del difference():
+//   1) Puertos RPi en pared X=0
+//   2) Abertura rectangular exterior en Y=0
+//   3) Abertura rectangular exterior en Y=EXT_W
+//   4) Ranuras FAN PM en pared Y=EXT_W
+
+EXT_L=200; EXT_W=180; EXT_H=70;
+// v15: EXT_L reducido de 250 -> 200 mm (Bambu Lab A1, cama 256x256x256 mm).
+// Con 250 mm de largo solo quedaban 3 mm de margen por lado contra el límite
+// de la cama (riesgo: deformación de bordes, recorte de esquina frontal-
+// izquierda si se usa AMS, tolerancia de calibración). Con 200 mm quedan
+// ~28 mm de margen por lado: zona segura.
+WALL=3; FLOOR=3; $fn=12;
+HEX_R=4.5; HEX_SP=2.8;
+M25_D=2.8; M23_D=2.5; M3_D=3.4; SO_H=7; SO_OD=6; GAP=7;
+
+RPI_X0=WALL+GAP; RPI_Y0=WALL+GAP;
+RPI_X1=RPI_X0+85; RPI_Y1=RPI_Y0+56;
+SH_RPI=[[RPI_X0+3.5,RPI_Y0+3.5],[RPI_X0+61.5,RPI_Y0+3.5],
+         [RPI_X0+3.5,RPI_Y0+52.5],[RPI_X0+61.5,RPI_Y0+52.5]];
+
+TAB_X0=RPI_X0-5; TAB_X1=RPI_X1+5;
+TAB_Y0=RPI_Y0-5; TAB_Y1=RPI_Y1+5;
+TAB_H=44; TAB_T=2.5;
+
+// Abertura rectangular con bordes sólidos — zona tabique
+SLOT_BORDER = 6;
+SLOT_X0 = TAB_X0 + SLOT_BORDER;
+SLOT_X1 = TAB_X1 - SLOT_BORDER;
+SLOT_Z0 = FLOOR + SLOT_BORDER;
+SLOT_Z1 = FLOOR + TAB_H - SLOT_BORDER;
+
+PM_X0=WALL+GAP; PM_Y0=EXT_W-WALL-GAP-41;
+SH_PM=[[PM_X0+3,PM_Y0+3],[PM_X0+43,PM_Y0+3],
+        [PM_X0+3,PM_Y0+38],[PM_X0+43,PM_Y0+38]];
+
+RS_X0=PM_X0+46+10; RS_Y0=EXT_W-WALL-GAP-47;
+SH_RS=[[RS_X0+3.5,RS_Y0+3.5],[RS_X0+33.5,RS_Y0+3.5],
+        [RS_X0+3.5,RS_Y0+43.5],[RS_X0+33.5,RS_Y0+43.5]];
+
+I2C_X0=RPI_X1+12; I2C_Y0=WALL+GAP;
+SH_I2C=[[I2C_X0+3.5,I2C_Y0+3.5],[I2C_X0+33.5,I2C_Y0+3.5],
+          [I2C_X0+3.5,I2C_Y0+23.5],[I2C_X0+33.5,I2C_Y0+23.5]];
+
+CO_X0=RPI_X1+12; CO_Y0=I2C_Y0+27+10;
+SH_CO=[[CO_X0+3.5,CO_Y0+3.5],[CO_X0+33.5,CO_Y0+3.5],
+        [CO_X0+3.5,CO_Y0+28.5],[CO_X0+33.5,CO_Y0+28.5]];
+
+BME_X0=CO_X0+37+10; BME_Y0=WALL+GAP;
+SH_BME=[[BME_X0+3.5,BME_Y0+3.5],[BME_X0+18.5,BME_Y0+3.5],
+         [BME_X0+3.5,BME_Y0+24.5],[BME_X0+18.5,BME_Y0+24.5]];
+
+// v15: CO2_CX reubicado. Antes estaba pegado a la pared X=EXT_L (lejos de
+// todo), dejando ~80 mm de piso vacío entre BME/CO/I2C y el sensor CO2.
+// Ahora se aprovecha esa franja libre (Y=122-158), sin chocar con RS
+// (X hasta 102.5) ni con el bloque CO/I2C (Y hasta 75.5).
+CO2_Y=140; CO2_Z=FLOOR+28; CO2_CX=124;
+
+// ── PANAL ───────────────────────────────────────────────────
+module hex2d(r){ circle(r=r,$fn=6); }
+
+module hc_Y(y_val, mg=10){
+    dx=HEX_R*sqrt(3)+HEX_SP; dz=HEX_R*1.5+HEX_SP*0.866;
+    ncols = floor((EXT_L - 2*mg - 2*HEX_R) / dx);
+    nrows = floor((EXT_H  - 2*mg - 2*HEX_R) / dz);
+    for(col=[0:ncols]) for(row=[0:nrows]){
+        cx = mg + HEX_R + col*dx + (row%2==1 ? dx/2 : 0);
+        cz = mg + HEX_R + row*dz;
+        if(cx-HEX_R >= mg && cx+HEX_R <= EXT_L-mg &&
+           cz-HEX_R >= mg && cz+HEX_R <= EXT_H-mg)
+            translate([cx, y_val, cz])
+                rotate([90,0,0])
+                linear_extrude(height=WALL*3, center=true) hex2d(HEX_R);
+    }
+}
+
+module hc_X(x_val, mg=10){
+    dy=HEX_R*sqrt(3)+HEX_SP; dz=HEX_R*1.5+HEX_SP*0.866;
+    ncols = floor((EXT_W - 2*mg - 2*HEX_R) / dy);
+    nrows = floor((EXT_H  - 2*mg - 2*HEX_R) / dz);
+    for(col=[0:ncols]) for(row=[0:nrows]){
+        cy = mg + HEX_R + col*dy + (row%2==1 ? dy/2 : 0);
+        cz = mg + HEX_R + row*dz;
+        if(cy-HEX_R >= mg && cy+HEX_R <= EXT_W-mg &&
+           cz-HEX_R >= mg && cz+HEX_R <= EXT_H-mg)
+            translate([x_val, cy, cz])
+                rotate([0,90,0])
+                linear_extrude(height=WALL*3, center=true) hex2d(HEX_R);
+    }
+}
+
+module hc_lid(mg=10){
+    dx=HEX_R*sqrt(3)+HEX_SP; dy=HEX_R*1.5+HEX_SP*0.866;
+    ncols = floor((EXT_L - 2*mg - 2*HEX_R) / dx);
+    nrows = floor((EXT_W - 2*mg - 2*HEX_R) / dy);
+    for(col=[0:ncols]) for(row=[0:nrows]){
+        cx = mg + HEX_R + col*dx + (row%2==1 ? dx/2 : 0);
+        cy = mg + HEX_R + row*dy;
+        if(cx-HEX_R >= mg && cx+HEX_R <= EXT_L-mg &&
+           cy-HEX_R >= mg && cy+HEX_R <= EXT_W-mg)
+            translate([cx, cy, 0])
+                linear_extrude(height=WALL*3, center=true) hex2d(HEX_R);
+    }
+}
+
+module SO(x,y,h=SO_H,od=SO_OD,hd=M3_D){
+    translate([x,y,FLOOR])
+        difference(){cylinder(h=h,d=od);cylinder(h=h+1,d=hd);}
+}
+
+// ============================================================
+module cuerpo(){
+    difference(){
+        union(){
+            cube([EXT_L,EXT_W,FLOOR]);
+            cube([WALL,EXT_W,EXT_H]);
+            translate([EXT_L-WALL,0,0]) cube([WALL,EXT_W,EXT_H]);
+            cube([EXT_L,WALL,EXT_H]);
+            translate([0,EXT_W-WALL,0]) cube([EXT_L,WALL,EXT_H]);
+
+            // Tabique RPi — frente abierto
+            translate([WALL,TAB_Y0,FLOOR])       cube([TAB_X1-WALL,TAB_T,TAB_H]);
+            translate([WALL,TAB_Y1-TAB_T,FLOOR]) cube([TAB_X1-WALL,TAB_T,TAB_H]);
+            translate([TAB_X1-TAB_T,TAB_Y0,FLOOR]) cube([TAB_T,TAB_Y1-TAB_Y0,TAB_H]);
+
+            for(h=SH_RPI) SO(h[0],h[1],hd=M25_D);
+            for(h=SH_PM)  SO(h[0],h[1],od=5,hd=M23_D);
+            for(h=SH_RS)  SO(h[0],h[1]);
+            for(h=SH_I2C) SO(h[0],h[1]);
+            for(h=SH_CO)  SO(h[0],h[1]);
+            for(h=SH_BME) SO(h[0],h[1]);
+            SO(CO2_CX-8,CO2_Y-18,h=SO_H+5);
+            SO(CO2_CX+8,CO2_Y-18,h=SO_H+5);
+            SO(CO2_CX-8,CO2_Y+18,h=SO_H+5);
+            SO(CO2_CX+8,CO2_Y+18,h=SO_H+5);
+        }
+
+        // ── PANAL 4 PAREDES ──
+        hc_X(0);
+        hc_X(EXT_L);
+        hc_Y(0);
+        hc_Y(EXT_W);
+
+        // ── ABERTURA PARED TABIQUE INTERIOR Y=TAB_Y0 ──
+        translate([SLOT_X0, TAB_Y0-1, SLOT_Z0])
+            cube([SLOT_X1-SLOT_X0, TAB_T+2, SLOT_Z1-SLOT_Z0]);
+
+        // ── ABERTURA PARED TABIQUE INTERIOR Y=TAB_Y1 ──
+        translate([SLOT_X0, TAB_Y1-TAB_T-1, SLOT_Z0])
+            cube([SLOT_X1-SLOT_X0, TAB_T+2, SLOT_Z1-SLOT_Z0]);
+
+        // ── RANURAS CABLES tabique derecho (X=TAB_X1) ──
+        for(rz=[FLOOR+10,FLOOR+24,FLOOR+38])
+            translate([TAB_X1-TAB_T-1,TAB_Y0+6,rz])
+                cube([TAB_T+2,TAB_Y1-TAB_Y0-12,9]);
+    }
+}
+
+// ============================================================
+module tapa(){
+    LIP_H=5; LIP_T=2.5;
+    difference(){
+        union(){
+            cube([EXT_L,EXT_W,WALL]);
+            translate([WALL*2,WALL*2,WALL])
+                difference(){
+                    cube([EXT_L-4*WALL,EXT_W-4*WALL,LIP_H]);
+                    translate([LIP_T,LIP_T,-1])
+                        cube([EXT_L-4*WALL-2*LIP_T,EXT_W-4*WALL-2*LIP_T,LIP_H+2]);
+                }
+        }
+        hc_lid();
+        for(sx=[10,EXT_L-10]) for(sy=[10,EXT_W-10])
+            translate([sx,sy,-1]) cylinder(h=WALL+2,d=M3_D);
+    }
+}
+
+module abrazadera_co2(){
+    CL_D=14; CL_W=44; CL_H=50;
+    difference(){
+        cube([CL_D,CL_W,CL_H]);
+        translate([-1,CL_W/2,CL_H/2]) rotate([0,90,0]) cylinder(h=CL_D+2,d=17.2);
+        for(by=[6,CL_W-6]) for(bz=[7,CL_H-7])
+            translate([-1,by,bz]) rotate([0,90,0]) cylinder(h=CL_D+2,d=M3_D);
+    }
+}
+
+cuerpo();
+// translate([0,EXT_W+15,0]) tapa();
+// translate([EXT_L+15,0,0]) abrazadera_co2();
