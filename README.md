@@ -1,113 +1,114 @@
 # Monitoreo Distribuido e Inteligente de la Calidad del Aire — ITR Centro-Sur (UTEC)
 
-Sistema de monitoreo de calidad del aire basado en una red distribuida de nodos IoT con Edge Computing, desarrollado como trabajo de tesis de grado en Ingeniería Agroambiental, Universidad Tecnológica del Uruguay (UTEC), ITR Centro-Sur, Durazno.
+Red distribuida de nodos IoT de bajo costo con Edge Computing para el monitoreo de la calidad del aire interior, desarrollada como trabajo final de grado en Ingeniería Agroambiental, Universidad Tecnológica del Uruguay (UTEC), ITR Centro-Sur, Durazno.
 
 - **Autora:** Karen Noelia Acosta Cardozo
 - **Tutor:** Jorge Iván Zapata
-- **Línea de investigación:** Monitoreo Ambiental / Internet de las Cosas (IoT) aplicado al ambiente
+- **Línea de investigación:** Monitoreo ambiental / Internet de las Cosas (IoT) aplicado al ambiente
 
 ## Descripción del proyecto
 
-El proyecto escala un prototipo aislado de monitoreo hacia una red distribuida de cinco nodos sensores, basada en los paradigmas de Internet de las Cosas (IoT) y Edge Computing, con el objetivo de caracterizar la dinámica espacio-temporal de CO2, CO, PM2.5, PM10, temperatura y humedad en espacios interiores del ITR Centro-Sur.
+El proyecto escala un prototipo aislado de monitoreo hacia una red de cinco nodos sensores distribuidos en espacios interiores del ITR Centro-Sur, con el objetivo de generar series temporales continuas de CO2, material particulado (PM1, PM2.5, PM10), temperatura y humedad relativa. El CO también se registra, pero solo para detectar eventos que superen el umbral de detección del sensor.
 
-Cada nodo opera como una unidad autónoma de procesamiento basada en Raspberry Pi 4, ejecutando localmente una cadena de preprocesamiento estadístico (Filtro de Kalman, Media Móvil de k=3 y modelos de aprendizaje automático — XGBoost/Random Forest — para la corrección de derivas térmicas de los sensores de bajo costo). Los datos se almacenan localmente en PostgreSQL, garantizando tolerancia a fallos ante interrupciones de conectividad, y se transmiten de forma asíncrona a un servidor central mediante una API REST, donde quedan disponibles para su visualización.
+Cada nodo es una Raspberry Pi Compute Module 4 (CM4, 4 GB de RAM) que lee los sensores cada 15 minutos, guarda cada lectura en una base PostgreSQL local y la envía al servidor central mediante una API REST. Una cola de sincronización garantiza que ninguna lectura se pierda ante cortes de red: los registros se marcan como sincronizados solo cuando el servidor confirma su recepción.
 
 ## Arquitectura del sistema
 
-El sistema se organiza en tres capas funcionales:
+1. **Capa de adquisición:** sensores conectados a la CM4 por I2C y UART. Lecturas sincronizadas con el reloj, en cada cuarto de hora exacto (:00, :15, :30, :45).
+2. **Capa de procesamiento local (Edge):** almacenamiento en PostgreSQL 15, dashboard local en Streamlit y cola de sincronización hacia el servidor (como máximo 200 registros por ciclo, en orden cronológico).
+3. **Capa de consolidación central:** API REST (FastAPI) que recibe, valida y almacena las lecturas de los cinco nodos.
 
-1. **Capa de adquisición (nodo / Edge):** sensores ambientales conectados a una Raspberry Pi 4 por protocolos I2C y UART, con almacenamiento local en PostgreSQL.
-2. **Capa de procesamiento local y transmisión:** filtrado de señal (Kalman + media móvil), corrección con modelos de ML y envío por lotes a través de una API REST.
-3. **Capa de consolidación central:** servidor que recibe, valida y almacena los datos de los cinco nodos, y los expone para su visualización en un dashboard.
+Previsto para las próximas etapas: filtrado de señal (Filtro de Kalman + media móvil k=3) en la visualización y corrección de los datos crudos con XGBoost / Random Forest en el servidor, entrenados con los datos de co-localización frente a la estación de referencia AQM65.
 
 ## Contenido del repositorio
 
 | Archivo | Descripción |
 |---|---|
-| `prueba_rest_estaciones.py` | Script de nodo (Raspberry Pi 4). Lee los sensores de CO2, CO, temperatura/humedad y material particulado, guarda cada lectura en la base de datos local y la envía al servidor central vía REST. |
-| `api_main.py` | API REST del servidor central (FastAPI). Recibe las lecturas enviadas por los nodos, gestiona el alta de estaciones y expone endpoints de consulta para alimentar el dashboard. |
-| `dashboard.py` | Dashboard de visualización (Streamlit + Plotly). Muestra valores actuales, series temporales por variable y estadística descriptiva del período seleccionado. |
+| `prueba_rest_estaciones.py` | Programa del nodo. Lee los cuatro sensores, guarda cada lectura en la base local como pendiente de envío y sincroniza los pendientes con el servidor central. Se ejecuta como servicio systemd. |
+| `migracion_local.sql` | Migración de la base local de cada nodo (marca temporal con zona horaria y campos de la cola de sincronización). Puede ejecutarse más de una vez sin riesgo. |
+| `api_main.py` | API REST del servidor central (FastAPI). |
+| `dashboard.py` | Dashboard local del nodo (Streamlit + Plotly): valores actuales, series temporales, resumen estadístico y descarga en CSV. |
+| `*_v15_compacta*.scad` / `.stl` | Diseño paramétrico (OpenSCAD) y modelos para impresión 3D de la carcasa del nodo (200 × 180 × 70 mm, PLA+). |
+
+### Endpoints de la API
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/lecturas` | Recibe una lectura de un nodo; registra la estación si es nueva. Ante un error deshace la operación y responde con código de error, de modo que el nodo mantiene el registro como pendiente. |
+| `GET` | `/api/lecturas` | Devuelve las últimas lecturas de una estación (300 por defecto). |
+| `GET` | `/api/estaciones` | Lista los códigos de las estaciones registradas. |
 
 ## Hardware y sensores
 
-| Variable | Modelo | Tecnología | Rango | Precisión |
+| Variable | Sensor | Tecnología | Interfaz | Rango |
 |---|---|---|---|---|
-| CO2 | DFRobot SEN0220 | NDIR infrarrojo | 0–5000 ppm | ±5 % |
-| PM2.5 / PM10 | DFRobot SEN0460 | Dispersión láser | 0–1000 µg/m³ | Óptica de conteo |
-| CO | SEN0466 | Electroquímico (I2C) | 10–1000 ppm | Alta resolución |
-| Temperatura / Humedad | BME680 (I2C) | Capacitivo/MEMS | — | — |
+| CO2 | DFRobot SEN0220 | NDIR | UART3 (`/dev/ttyAMA3`), 9600 bps | 0–50.000 ppm |
+| PM1 / PM2.5 / PM10 | DFRobot SEN0177 | Dispersión láser | UART5 (`/dev/ttyAMA5`), 9600 bps | 0–999 µg/m³ |
+| CO | DFRobot SEN0466 | Electroquímico | I2C, dirección 0x74 | 0–1.000 ppm |
+| Temperatura / HR | Bosch BME680 | Capacitivo / MEMS | I2C, dirección 0x77 | -40 a 85 °C / 0–100 % |
 
-La unidad central de procesamiento de cada nodo es una Raspberry Pi 4, elegida por su capacidad de ejecutar un sistema operativo completo, una instancia local de PostgreSQL y el desarrollo lógico en Python de forma concurrente.
+En `/boot/config.txt` deben estar habilitados `dtoverlay=uart3`, `dtoverlay=uart5` y `dtparam=i2c_arm=on`.
 
-## Puntos de despliegue de los nodos
+## Ubicación de los nodos
 
-Los cinco nodos de la red están desplegados en los siguientes espacios del ITR Centro-Sur:
+| Nodo | Ubicación |
+|---|---|
+| Nodo 1 | Laboratorio de Química Analítica |
+| Nodo 2 | Laboratorio de Suelos |
+| Nodo 3 | LabMAb |
+| Nodo 4 | Laboratorio de Efluentes y Residuos (LabEr) |
+| Nodo 5 | Trituración y Molienda |
 
-- Suelos
-- LabEr
-- LabMab
-- Trituración y Molienda (Laboratorio de Química Analítica)
+La instalación es progresiva. El nodo 1 (EST01) registra datos desde febrero de 2026. Para la co-localización, los cinco nodos se trasladarán temporalmente al Laboratorio de Electrónica e Instrumentación, donde está la estación AQM65.
 
-> Nota: estas son las ubicaciones reales de despliegue. Reemplazan las ubicaciones tentativas descritas en el anteproyecto de tesis (Recepción, Medata, Biblioteca y Laboratorio de Electrónica e Instrumentación).
+## Configuración
 
-## Variables de entorno
+Las credenciales y parámetros se leen de variables de entorno; no deben quedar credenciales reales en el código. En el nodo se definen en `/etc/estacion/estacion.env`, que el servicio systemd carga con `EnvironmentFile`. Los archivos `.env` están excluidos del repositorio.
 
-Cada componente lee su configuración desde variables de entorno; no se deben dejar credenciales reales en el código.
+**Nodo (`prueba_rest_estaciones.py`)**
 
-**`api_main.py`** (servidor central)
-
-| Variable | Descripción | Valor por defecto |
+| Variable | Descripción | Por defecto |
 |---|---|---|
-| `DB_NAME` | Nombre de la base de datos | `tesis_db` |
-| `DB_USER` | Usuario de PostgreSQL | `postgres` |
-| `DB_PASSWORD` | Contraseña de PostgreSQL | — |
-| `DB_HOST` | Host de la base de datos | `127.0.0.1` |
-| `DB_PORT` | Puerto de PostgreSQL | `5432` |
+| `CODIGO_ESTACION` | Código del nodo | `EST01` |
+| `URL_SERVIDOR` | Endpoint de la API central | `http://localhost:8000/api/lecturas` |
+| `INTERVALO_MIN` | Intervalo de lectura (min) | `15` |
+| `MAX_ENVIOS_POR_CICLO` | Máximo de registros pendientes enviados por ciclo | `200` |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | Base local | `estacion_db`, `estacion_user`, —, `127.0.0.1`, `5432` |
+| `PORT_CO2`, `PORT_PM` | Puertos serie | `/dev/ttyAMA3`, `/dev/ttyAMA5` |
+| `I2C_BUS`, `I2C_ADDR_SEN0466`, `I2C_ADDR_BME680` | Bus y direcciones I2C | `1`, `0x74`, `0x77` |
 
-**`dashboard.py`** (dashboard)
+**Dashboard (`dashboard.py`)**: `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` (lee también un archivo `.env` en la carpeta).
 
-| Variable | Descripción | Valor por defecto |
-|---|---|---|
-| `DB_USER` | Usuario de PostgreSQL | `estacion_user` |
-| `DB_PASS` | Contraseña de PostgreSQL | — |
-| `DB_HOST` | Host de la base de datos | `127.0.0.1` |
-| `DB_NAME` | Nombre de la base de datos | `estacion_db` |
-
-**`prueba_rest_estaciones.py`** (nodo)
-
-| Variable | Descripción | Valor por defecto |
-|---|---|---|
-| `URL_SERVIDOR` | URL del endpoint REST del servidor central | `http://localhost:8000/api/lecturas` |
-| `CODIGO_ESTACION` | Código identificador del nodo | `EST01` |
-| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | Conexión a la base de datos local del nodo | ver script |
-
-> Nota: `dashboard.py` usa `DB_PASS` mientras que `api_main.py` y `prueba_rest_estaciones.py` usan `DB_PASSWORD`. Tenerlo en cuenta al definir las variables de entorno en cada entorno de despliegue.
+**Servidor (`api_main.py`)**: `DB_NAME` (`tesis_db`), `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`.
 
 ## Instalación y ejecución
 
-### Servidor central (API REST)
+### Nodo sensor
+
+```bash
+python3 -m venv entorno && source entorno/bin/activate
+pip install pyserial psycopg2-binary requests smbus2 adafruit-blinka adafruit-circuitpython-bme680 RPi.GPIO
+psql -U estacion_user -h 127.0.0.1 -d estacion_db -f migracion_local.sql
+python prueba_rest_estaciones.py      # en producción: servicio systemd
+```
+
+### Dashboard local
+
+```bash
+pip install streamlit pandas sqlalchemy psycopg2-binary plotly python-dotenv
+streamlit run dashboard.py
+```
+
+### Servidor central
 
 ```bash
 pip install fastapi uvicorn psycopg2-binary pydantic
 uvicorn api_main:app --host 0.0.0.0 --port 8000
 ```
 
-### Dashboard
-
-```bash
-pip install streamlit pandas sqlalchemy psycopg2-binary plotly
-streamlit run dashboard.py
-```
-
-### Nodo sensor (Raspberry Pi 4)
-
-Requiere las librerías de hardware específicas de Raspberry Pi (I2C/UART):
-
-```bash
-pip install pyserial psycopg2-binary requests smbus2 adafruit-circuitpython-ads1x15 adafruit-circuitpython-bme680
-python prueba_rest_estaciones.py
-```
-
 ## Estado del proyecto
 
-Este repositorio corresponde a una tesis de grado en curso. El diseño completo del sistema (autenticación JWT, cifrado HTTPS/TLS de extremo a extremo, corrección por ML entrenada contra la estación de referencia AQM65, carcasa protectora impresa en 3D, etc.) se documenta en el anteproyecto de tesis; algunos de estos componentes se encuentran en distintas etapas de implementación respecto de los scripts incluidos aquí.
+Trabajo de grado en curso (primera etapa entregada en octubre de 2026).
+
+- Implementado: cinco nodos armados con carcasa impresa en 3D; adquisición cada 15 minutos; base local con cola de sincronización; API REST; dashboard local. Tres nodos transmiten al servidor central.
+- En desarrollo: cifrado HTTPS/TLS y autenticación de nodos con JWT (hoy la transmisión es HTTP dentro de la red institucional); conexión de los dos nodos restantes; co-localización con la AQM65; Filtro de Kalman y corrección por aprendizaje automático; panel centralizado con las cinco estaciones.
