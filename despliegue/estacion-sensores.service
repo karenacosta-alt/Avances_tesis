@@ -1,0 +1,17 @@
+# Copiar a /etc/systemd/system/estacion-sensores.service
+# Reemplazar USUARIO y la carpeta del proyecto por los de la estación.
+[Unit]
+Description=Estacion de calidad del aire (lectura de sensores y sincronizacion)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=USUARIO
+WorkingDirectory=/home/USUARIO/prueba
+EnvironmentFile=/etc/estacion/estacion.env
+ExecStart=/home/USUARIO/prueba/entorno/bin/python -u prueba_rest_estaciones.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -27,6 +27,7 @@ Previsto para las próximas etapas: filtrado de señal (Filtro de Kalman + media
 | `prueba_rest_estaciones.py` | Programa del nodo. Lee los cuatro sensores, guarda cada lectura en la base local como pendiente de envío y sincroniza los pendientes con el servidor central. Se ejecuta como servicio systemd. |
 | `migracion_local.sql` | Migración de la base local de cada nodo (marca temporal con zona horaria y campos de la cola de sincronización). Puede ejecutarse más de una vez sin riesgo. |
 | `api_main.py` | API REST del servidor central (FastAPI). |
+| `despliegue/` | Guía de instalación por estación, plantilla de configuración y servicio systemd. |
 | `dashboard.py` | Dashboard local del nodo (Streamlit + Plotly): valores actuales, series temporales, resumen estadístico y descarga en CSV. |
 | `*_v15_compacta*.scad` / `.stl` | Diseño paramétrico (OpenSCAD) y modelos para impresión 3D de la carcasa del nodo (200 × 180 × 70 mm, PLA+). |
 
@@ -91,6 +92,8 @@ pip install pyserial psycopg2-binary requests smbus2 adafruit-blinka adafruit-ci
 psql -U estacion_user -h 127.0.0.1 -d estacion_db -f migracion_local.sql
 python prueba_rest_estaciones.py      # en producción: servicio systemd
 ```
+
+Para pasar el código final a otra estación, seguir [despliegue/INSTALACION_ESTACION.md](despliegue/INSTALACION_ESTACION.md) (incluye plantilla de `/etc/estacion/estacion.env` y del servicio systemd).
 
 ### Dashboard local
 
