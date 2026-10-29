@@ -14,6 +14,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "estacion_db")
+ZONA_HORARIA = "America/Montevideo"
 
 PALETTE = {
     "surface": "#fcfcfb",
@@ -74,7 +75,10 @@ st.markdown(
 @st.cache_resource
 def get_db_engine():
     connection_url = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    return create_engine(connection_url)
+    # Sesión en hora de Uruguay: las marcas de tiempo y el filtro por fechas se ven en hora local
+    return create_engine(
+        connection_url, connect_args={"options": f"-c timezone={ZONA_HORARIA}"}
+    )
 
 
 def consultar(query, params=None):
@@ -236,6 +240,11 @@ def get_data(estacion_id, inicio, fin):
         df = consultar(query, params=(int(estacion_id), str(inicio), str(fin_plus_one)))
         if not df.empty:
             df["timestamp"] = pd.to_datetime(df["timestamp"])
+            # pandas devuelve en UTC las columnas con zona horaria: pasarlas a hora de Uruguay
+            if df["timestamp"].dt.tz is not None:
+                df["timestamp"] = (
+                    df["timestamp"].dt.tz_convert(ZONA_HORARIA).dt.tz_localize(None)
+                )
             df = df.sort_values("timestamp").reset_index(drop=True)
         return df
     except Exception as e:
@@ -492,6 +501,11 @@ if not df.empty:
             df_stats.style.format("{:.2f}", na_rep="N/A"),
             use_container_width=True,
         )
+
+else:
+    st.warning(
+        f"No hay datos registrados para la estación {estacion_sel} en el rango de fechas seleccionado."
+    )
 
 else:
     st.warning(
