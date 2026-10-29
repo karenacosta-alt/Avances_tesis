@@ -193,6 +193,7 @@ pestanas = st.tabs([
     "🌡️ Temperatura y humedad",
     "🧪 Gases (CO₂ y CO)",
     "🌫️ Material particulado",
+    "🔍 Análisis entre estaciones",
 ])
 
 with pestanas[0]:
@@ -305,6 +306,86 @@ with pestanas[2]:
     pestana_por_estacion([VAR["co2_ppm"], VAR["co_ppm"]], juntas=False)
 with pestanas[3]:
     pestana_por_estacion([VAR["pm1_ugm3"], VAR["pm25_ugm3"], VAR["pm10_ugm3"]], juntas=True)
+
+# =========================
+# Análisis entre estaciones: desvío, resumen estadístico y distribución
+# =========================
+def esperados(inicio, fin):
+    """Cantidad de lecturas que debería haber entre inicio y fin (sin contar el futuro)."""
+    fin = min(pd.Timestamp(fin), pd.Timestamp.now(tz=ZONA_HORARIA).tz_localize(None))
+    minutos = (fin - pd.Timestamp(inicio)).total_seconds() / 60
+    return max(int(minutos // INTERVALO_MIN), 1)
+
+
+with pestanas[4]:
+    st.caption(
+        "Durante la co-localización todas las estaciones miden el mismo aire: "
+        "las diferencias entre ellas muestran el sesgo propio de cada sensor."
+    )
+    nombres = {f"{v[1]} ({v[2]})": v for v in VARIABLES}
+    col, nombre, unidad = nombres[st.selectbox("Variable", list(nombres))]
+    con_datos = [e for e in seleccion if df.loc[df["estacion"] == e, col].notna().any()]
+    if not con_datos:
+        st.info("Ninguna estación tiene datos de esta variable en el rango elegido.")
+    else:
+        # Desvío de cada estación respecto al promedio de la red en cada momento
+        tabla = datos.pivot_table(index="timestamp", columns="estacion", values=col)
+        tabla = tabla[[e for e in con_datos if e in tabla.columns]]
+        promedio_red = tabla.mean(axis=1).where(tabla.notna().sum(axis=1) >= 2)
+        desvio = tabla.sub(promedio_red, axis=0)
+
+        fig = go.Figure()
+        fig.add_hline(y=0, line=dict(color="#898781", width=1, dash="dash"))
+        for estacion in desvio.columns:
+            fig.add_trace(go.Scatter(
+                x=desvio.index, y=desvio[estacion], name=estacion, mode="lines",
+                line=dict(color=mapa_colores[estacion], width=2), connectgaps=False,
+            ))
+        fig.update_layout(
+            title=f"Desvío respecto al promedio de la red · {nombre} ({unidad})",
+            height=340, hovermode="x unified", margin=dict(l=10, r=10, t=50, b=10),
+            legend=dict(orientation="h", y=1.12, x=1, xanchor="right"),
+            xaxis_title="", yaxis_title=unidad,
+        )
+        st.plotly_chart(fig, width="stretch", key="desvio")
+        if len(desvio.columns) < 2:
+            st.caption("Hace falta más de una estación con datos para calcular el desvío.")
+
+        # Resumen estadístico por estación (lecturas originales de 15 min)
+        n_esperado = esperados(fecha_inicio, fecha_fin + timedelta(days=1))
+        filas = []
+        for estacion in seleccion:
+            serie = df.loc[df["estacion"] == estacion, col].dropna()
+            filas.append({
+                "Estación": estacion,
+                "Lecturas": len(serie),
+                "Completitud (%)": round(100 * len(serie) / n_esperado, 1),
+                "Media": serie.mean(),
+                "Mediana": serie.median(),
+                "P10": serie.quantile(0.10) if len(serie) else None,
+                "P90": serie.quantile(0.90) if len(serie) else None,
+                "Desvío medio vs. red": desvio[estacion].mean() if estacion in desvio else None,
+            })
+        resumen = pd.DataFrame(filas).round(2)
+        st.markdown(f"**Resumen por estación · {nombre} ({unidad})**")
+        st.dataframe(resumen, hide_index=True, width="stretch")
+        st.caption(
+            f"Completitud: lecturas con dato sobre las {n_esperado} esperadas cada "
+            f"{INTERVALO_MIN} min en el período (criterio del proyecto: ≥ 75 %)."
+        )
+
+        # Distribución por estación
+        caja = px.box(
+            df[df["estacion"].isin(con_datos)], x="estacion", y=col, color="estacion",
+            color_discrete_map=mapa_colores, category_orders={"estacion": con_datos},
+            points=False,
+        )
+        caja.update_layout(
+            title=f"Distribución por estación · {nombre} ({unidad})", height=360,
+            showlegend=False, margin=dict(l=10, r=10, t=50, b=10),
+            xaxis_title="", yaxis_title=unidad,
+        )
+        st.plotly_chart(caja, width="stretch", key="caja")
 
 # =========================
 # Descarga
