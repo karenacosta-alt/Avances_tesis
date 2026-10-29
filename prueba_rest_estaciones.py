@@ -7,7 +7,7 @@ import board
 import serial
 import requests
 import psycopg2
-from smbus2 import SMBus
+from smbus2 import SMBus, i2c_msg
 import adafruit_bme680
 
 # =========================
@@ -90,10 +90,26 @@ def leer_co2():
     except Exception:
         return None
 
+CMD_CO_PREGUNTA = [0xFF, 0x01, 0x88, 0, 0, 0, 0, 0, 0x77]
+
 def leer_co_sen0466():
+    """Lee el CO del SEN0466 en modo activo (registro 0x09) o, si el sensor
+    está en modo pregunta-respuesta, con el comando 0x88."""
     try:
         with SMBus(I2C_BUS) as bus:
             data = bus.read_i2c_block_data(I2C_ADDR_SEN0466, 0x09, 2)
+            if data[0] == 0xFF and data[1] == 0x88:
+                # Modo pregunta-respuesta: el registro devuelve la cabecera de la trama
+                bus.i2c_rdwr(i2c_msg.write(I2C_ADDR_SEN0466, CMD_CO_PREGUNTA))
+                time.sleep(0.2)
+                r = i2c_msg.read(I2C_ADDR_SEN0466, 7)
+                bus.i2c_rdwr(r)
+                r = list(r)
+                if r[0] != 0xFF or r[1] != 0x88:
+                    return None
+                ppm = (r[2] << 8) | r[3]
+                decimales = r[5] if r[5] in (0, 1, 2) else 0
+                return round(ppm / (10 ** decimales), 2)
         ppm = (data[0] << 8) | data[1]
         if ppm >= CO_INVALIDO:
             return None
